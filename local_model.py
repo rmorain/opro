@@ -8,6 +8,7 @@ messages = [
     {"role": "user", "content": "Who are you?"},
 ]
 pipe = pipeline(
-    "text-generation", model="microsoft/Phi-3.5-mini-instruct", trust_remote_code=True
+    "text-generation", model="meta-llama/Llama-3.1-8B-Instruct", device="cuda"
 )
-pipe(messages)
+output = pipe(messages)
+print(output)

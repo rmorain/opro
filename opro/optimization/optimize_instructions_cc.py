@@ -64,24 +64,10 @@ ROOT_DATA_FOLDER_PATH = os.path.join(OPRO_ROOT_PATH, "data")
 
 _OPENAI_API_KEY = flags.DEFINE_string("openai_api_key", "", "The OpenAI API key.")
 
-_SCORER = flags.DEFINE_string(
-    "scorer", "mistralai/Mistral-7B-v0.1", "The name of the scorer LLM."
-)
+_SCORER = flags.DEFINE_string("scorer", "llama", "The name of the scorer LLM.")
 
 
-_OPTIMIZER = flags.DEFINE_string(
-    "optimizer", "gpt-3.5-turbo", "The name of the optimizer LLM."
-)
-
-_DATASET = flags.DEFINE_string(
-    "dataset", "gsm8k", "The name of dataset to search for instructions on."
-)
-
-_TASK = flags.DEFINE_string(
-    "task",
-    "train",
-    "The name of task within the above dataset to search for instructions on.",
-)
+_OPTIMIZER = flags.DEFINE_string("optimizer", "llama", "The name of the optimizer LLM.")
 
 _INSTRUCTION_POS = flags.DEFINE_string(
     "instruction_pos",
@@ -102,65 +88,14 @@ def main(_):
     openai_api_key = _OPENAI_API_KEY.value
     scorer_llm_name = _SCORER.value
     optimizer_llm_name = _OPTIMIZER.value
-    dataset_name = _DATASET.value.lower()
-    task_name = _TASK.value
     meta_prompt_type = _META_PROMPT_TYPE.value
 
-    assert dataset_name in {
-        "mmlu",
-        "bbh",
-        "gsm8k",
-    }, "The lower-case dataset name must be one of mmlu, bbh, or gsm8k."
-    if dataset_name == "mmlu":
-        assert task_name in {
-            "STEM",
-            "humanities",
-            "social sciences",
-            "other (business, health, misc.)",
-        }  # for now only support searching on one MMLU category
-    elif dataset_name == "bbh":
-        assert task_name in {
-            "boolean_expressions",
-            "causal_judgement",
-            "date_understanding",
-            "disambiguation_qa",
-            "dyck_languages",
-            "formal_fallacies",
-            "geometric_shapes",
-            "hyperbaton",
-            "logical_deduction_five_objects",
-            "logical_deduction_seven_objects",
-            "logical_deduction_three_objects",
-            "movie_recommendation",
-            "multistep_arithmetic_two",
-            "navigate",
-            "object_counting",
-            "penguins_in_a_table",
-            "reasoning_about_colored_objects",
-            "ruin_names",
-            "salient_translation_error_detection",
-            "snarks",
-            "sports_understanding",
-            "temporal_sequences",
-            "tracking_shuffled_objects_five_objects",
-            "tracking_shuffled_objects_seven_objects",
-            "tracking_shuffled_objects_three_objects",
-            "web_of_lies",
-            "word_sorting",
-        }
-    else:
-        assert dataset_name == "gsm8k"
-        assert task_name in {"train", "test"}
-
-    assert scorer_llm_name in {
-        "text-bison",
-        "gpt-3.5-turbo",
-        "gpt-4",
-    }
+    assert scorer_llm_name in {"text-bison", "gpt-3.5-turbo", "gpt-4", "llama"}
     assert optimizer_llm_name in {
         "text-bison",
         "gpt-3.5-turbo",
         "gpt-4",
+        "llama",
     }
     assert meta_prompt_type in {
         "both_instructions_and_exemplars",
@@ -180,7 +115,7 @@ def main(_):
     )
     print(
         f"scorer: {scorer_llm_name}, optimizer: {optimizer_llm_name}, dataset:"
-        f" {dataset_name}, task: {task_name}, instruction_pos: {instruction_pos}"
+        f"instruction_pos: {instruction_pos}"
     )
 
     # make sure the scorer and optimizer models are callable
@@ -188,31 +123,13 @@ def main(_):
         assert openai_api_key, "The OpenAI API key must be provided."
         openai.api_key = openai_api_key
     else:
-        assert scorer_llm_name == "text-bison"
-        assert (
-            palm_api_key
-        ), "A PaLM API key is needed when prompting the text-bison model."
-        palm.configure(api_key=palm_api_key)
+        assert scorer_llm_name == "llama"
 
     if optimizer_llm_name in {"gpt-3.5-turbo", "gpt-4"}:
         assert openai_api_key, "The OpenAI API key must be provided."
         openai.api_key = openai_api_key
     else:
-        assert optimizer_llm_name == "text-bison"
-        assert (
-            palm_api_key
-        ), "A PaLM API key is needed when prompting the text-bison model."
-        palm.configure(api_key=palm_api_key)
-
-    if dataset_name == "mmlu":
-        root_data_folder_path = os.path.join(ROOT_DATA_FOLDER_PATH, "MMLU-data")
-    elif dataset_name == "bbh":
-        root_data_folder_path = os.path.join(
-            ROOT_DATA_FOLDER_PATH, "BIG-Bench-Hard-data/"
-        )
-    else:
-        assert dataset_name == "gsm8k"
-        root_data_folder_path = os.path.join(ROOT_DATA_FOLDER_PATH, "gsm_data")
+        assert optimizer_llm_name == "llama"
 
     # =================== create the result directory ==========================
     datetime_str = (
@@ -225,7 +142,7 @@ def main(_):
         OPRO_ROOT_PATH,
         "outputs",
         "optimization-results",
-        f"{dataset_name.upper()}-{task_name}-s-{scorer_llm_name}-o-{optimizer_llm_name}-{datetime_str}/",
+        f"s-{scorer_llm_name}-o-{optimizer_llm_name}-{datetime_str}/",
     )
     result_by_instruction_folder = os.path.join(save_folder, "result_by_instruction")
     os.makedirs(result_by_instruction_folder)
@@ -236,56 +153,27 @@ def main(_):
     # - num_decodes: how many outputs we actually want for each input
     # - batch_size: the batch size in model serving, should equal to that in
     # model serving config
+    assert scorer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4", "llama"}
+    scorer_gpt_max_decode_steps = 1024
+    scorer_gpt_temperature = 0.0
 
-    if scorer_llm_name == "text-bison":
-        # when prompting text-bison with Cloud API
-        scorer_finetuned_palm_temperature = 0.0
-        scorer_finetuned_palm_max_decode_steps = 1024
-        scorer_finetuned_palm_batch_size = 1
-        scorer_finetuned_palm_num_servers = 1
-        scorer_finetuned_palm_dict = dict()
-        scorer_finetuned_palm_dict["temperature"] = scorer_finetuned_palm_temperature
-        scorer_finetuned_palm_dict["num_servers"] = scorer_finetuned_palm_num_servers
-        scorer_finetuned_palm_dict["batch_size"] = scorer_finetuned_palm_batch_size
-        scorer_finetuned_palm_dict["max_decode_steps"] = (
-            scorer_finetuned_palm_max_decode_steps
-        )
+    scorer_gpt_dict = dict()
+    scorer_gpt_dict["max_decode_steps"] = scorer_gpt_max_decode_steps
+    scorer_gpt_dict["temperature"] = scorer_gpt_temperature
+    scorer_gpt_dict["num_decodes"] = 1
+    scorer_gpt_dict["batch_size"] = 1
+    scorer_gpt_dict["num_servers"] = 1
 
-        call_scorer_finetuned_palm_server_func = functools.partial(
-            prompt_utils.call_palm_server_from_cloud,
-            model="text-bison-001",
-            temperature=scorer_finetuned_palm_dict["temperature"],
-            max_decode_steps=scorer_finetuned_palm_dict["max_decode_steps"],
-        )
-
-        scorer_llm_dict = {
-            "model_type": scorer_llm_name.lower(),
-        }
-        scorer_llm_dict.update(scorer_finetuned_palm_dict)
-        call_scorer_server_func = call_scorer_finetuned_palm_server_func
-
-    else:
-        assert scorer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4"}
-        scorer_gpt_max_decode_steps = 1024
-        scorer_gpt_temperature = 0.0
-
-        scorer_gpt_dict = dict()
-        scorer_gpt_dict["max_decode_steps"] = scorer_gpt_max_decode_steps
-        scorer_gpt_dict["temperature"] = scorer_gpt_temperature
-        scorer_gpt_dict["num_decodes"] = 1
-        scorer_gpt_dict["batch_size"] = 1
-        scorer_gpt_dict["num_servers"] = 1
-
-        scorer_llm_dict = {
-            "model_type": scorer_llm_name.lower(),
-        }
-        scorer_llm_dict.update(scorer_gpt_dict)
-        call_scorer_server_func = functools.partial(
-            prompt_utils.call_openai_server_func,
-            model=scorer_llm_name.lower(),
-            max_decode_steps=scorer_gpt_max_decode_steps,
-            temperature=scorer_gpt_temperature,
-        )
+    scorer_llm_dict = {
+        "model_type": scorer_llm_name.lower(),
+    }
+    scorer_llm_dict.update(scorer_gpt_dict)
+    call_scorer_server_func = functools.partial(
+        prompt_utils.call_openai_server_func,
+        model=scorer_llm_name.lower(),
+        max_decode_steps=scorer_gpt_max_decode_steps,
+        temperature=scorer_gpt_temperature,
+    )
 
     # ====================== optimizer model configs ============================
     if optimizer_llm_name.lower() == "text-bison":
