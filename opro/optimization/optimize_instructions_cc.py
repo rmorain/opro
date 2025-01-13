@@ -64,9 +64,9 @@ ROOT_DATA_FOLDER_PATH = os.path.join(OPRO_ROOT_PATH, "data")
 
 _OPENAI_API_KEY = flags.DEFINE_string("openai_api_key", "", "The OpenAI API key.")
 
-_PALM_API_KEY = flags.DEFINE_string("palm_api_key", "", "The PaLM API key.")
-
-_SCORER = flags.DEFINE_string("scorer", "text-bison", "The name of the scorer LLM.")
+_SCORER = flags.DEFINE_string(
+    "scorer", "mistralai/Mistral-7B-v0.1", "The name of the scorer LLM."
+)
 
 
 _OPTIMIZER = flags.DEFINE_string(
@@ -100,7 +100,6 @@ _META_PROMPT_TYPE = flags.DEFINE_string(
 
 def main(_):
     openai_api_key = _OPENAI_API_KEY.value
-    palm_api_key = _PALM_API_KEY.value
     scorer_llm_name = _SCORER.value
     optimizer_llm_name = _OPTIMIZER.value
     dataset_name = _DATASET.value.lower()
