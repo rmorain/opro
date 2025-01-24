@@ -153,27 +153,56 @@ def main(_):
     # - num_decodes: how many outputs we actually want for each input
     # - batch_size: the batch size in model serving, should equal to that in
     # model serving config
-    assert scorer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4", "llama"}
-    scorer_gpt_max_decode_steps = 1024
-    scorer_gpt_temperature = 0.0
 
-    scorer_gpt_dict = dict()
-    scorer_gpt_dict["max_decode_steps"] = scorer_gpt_max_decode_steps
-    scorer_gpt_dict["temperature"] = scorer_gpt_temperature
-    scorer_gpt_dict["num_decodes"] = 1
-    scorer_gpt_dict["batch_size"] = 1
-    scorer_gpt_dict["num_servers"] = 1
+    if scorer_llm_name == "llama":
+        # when prompting llama locally
+        scorer_finetuned_llama_temperature = 0.0
+        scorer_finetuned_llama_max_decode_steps = 1024
+        scorer_finetuned_llama_batch_size = 1
+        scorer_finetuned_llama_num_servers = 1
+        scorer_finetuned_llama_dict = dict()
+        scorer_finetuned_llama_dict["temperature"] = scorer_finetuned_llama_temperature
+        scorer_finetuned_llama_dict["num_servers"] = scorer_finetuned_llama_num_servers
+        scorer_finetuned_palm_dict["batch_size"] = scorer_finetuned_palm_batch_size
+        scorer_finetuned_palm_dict["max_decode_steps"] = (
+            scorer_finetuned_palm_max_decode_steps
+        )
 
-    scorer_llm_dict = {
-        "model_type": scorer_llm_name.lower(),
-    }
-    scorer_llm_dict.update(scorer_gpt_dict)
-    call_scorer_server_func = functools.partial(
-        prompt_utils.call_openai_server_func,
-        model=scorer_llm_name.lower(),
-        max_decode_steps=scorer_gpt_max_decode_steps,
-        temperature=scorer_gpt_temperature,
-    )
+        call_scorer_finetuned_palm_server_func = functools.partial(
+            prompt_utils.call_palm_server_from_cloud,
+            model="text-bison-001",
+            temperature=scorer_finetuned_palm_dict["temperature"],
+            max_decode_steps=scorer_finetuned_palm_dict["max_decode_steps"],
+        )
+
+        scorer_llm_dict = {
+            "model_type": scorer_llm_name.lower(),
+        }
+        scorer_llm_dict.update(scorer_finetuned_palm_dict)
+        call_scorer_server_func = call_scorer_finetuned_palm_server_func
+
+    else:
+        assert scorer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4"}
+        scorer_gpt_max_decode_steps = 1024
+        scorer_gpt_temperature = 0.0
+
+        scorer_gpt_dict = dict()
+        scorer_gpt_dict["max_decode_steps"] = scorer_gpt_max_decode_steps
+        scorer_gpt_dict["temperature"] = scorer_gpt_temperature
+        scorer_gpt_dict["num_decodes"] = 1
+        scorer_gpt_dict["batch_size"] = 1
+        scorer_gpt_dict["num_servers"] = 1
+
+        scorer_llm_dict = {
+            "model_type": scorer_llm_name.lower(),
+        }
+        scorer_llm_dict.update(scorer_gpt_dict)
+        call_scorer_server_func = functools.partial(
+            prompt_utils.call_openai_server_func,
+            model=scorer_llm_name.lower(),
+            max_decode_steps=scorer_gpt_max_decode_steps,
+            temperature=scorer_gpt_temperature,
+        )
 
     # ====================== optimizer model configs ============================
     if optimizer_llm_name.lower() == "text-bison":
