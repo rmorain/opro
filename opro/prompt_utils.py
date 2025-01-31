@@ -133,9 +133,7 @@ def call_palm_server_from_cloud(
 
 def call_llama_server_func(
     inputs,
-    model,
-    max_decode_steps=20,
-    temperature=0.8,
+    pipeline=None,
 ):
     """The function to call a local llama model with a list of input strings."""
     if isinstance(inputs, str):
@@ -144,13 +142,18 @@ def call_llama_server_func(
     for input_str in inputs:
         output = call_llama_server_single_prompt(
             input_str,
-            model=model,
-            max_decode_steps=max_decode_steps,
-            temperature=temperature,
+            pipeline=pipeline,
         )
         outputs.append(output)
     return outputs
 
 
-def call_llama_server_single_prompt(input_str, model, max_decode_steps, temperature):
-    pass
+def call_llama_server_single_prompt(input_str, pipeline):
+    """The function to call a local llama model with an input string."""
+    messages = [
+        {"role": "user", "content": input_str},
+    ]
+    output = pipeline(
+        messages,
+    )
+    return output[0]["generated_text"]

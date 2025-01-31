@@ -24,9 +24,7 @@ Step 3: check if the model configs (like batch size) are the same as the actual 
 Step 4: run
 
 ```
-python optimize_instructions.py \
-    --optimizer="gpt-3.5-turbo" --scorer="text-bison" \
-    --instruction_pos="A_begin" --dataset="gsm8k" --task="train"
+python optimize_instructions_cc.py --optimizer="llama" --scorer="llama" --instruction_pos="A_begin" 
 ```
 
 The outputs will then be written to `outputs/optimization-results/` in the opro folder.
@@ -46,7 +44,7 @@ import functools
 import os
 import sys
 
-from transformers import pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 OPRO_ROOT_PATH = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -152,11 +150,18 @@ def main(_):
     # - num_decodes: how many outputs we actually want for each input
     # - batch_size: the batch size in model serving, should equal to that in
     # model serving config
+    if scorer_llm_name == "llama" or optimizer_llm_name == "llama":
+        llama_model = AutoModelForCausalLM.from_pretrained(
+            "meta-llama/Llama-3.1-8B-Instruct"
+        ).to("cuda")
+        llama_tokenizer = AutoTokenizer.from_pretrained(
+            "meta-llama/Llama-3.1-8B-Instruct"
+        )
 
     if scorer_llm_name == "llama":
         # when prompting llama locally
         scorer_llama_max_decode_steps = 1024
-        scorer_llama_temperature = 0.0
+        scorer_llama_temperature = 1.0
 
         scorer_llama_dict = dict()
         scorer_llama_dict["max_decode_steps"] = scorer_llama_max_decode_steps
@@ -169,11 +174,17 @@ def main(_):
             "model_type": scorer_llm_name.lower(),
         }
         scorer_llm_dict.update(scorer_llama_dict)
+        pipe = pipeline(
+            "text-generation",
+            model=llama_model,
+            tokenizer=llama_tokenizer,
+            temperature=scorer_llama_temperature,
+            max_new_tokens=scorer_llama_max_decode_steps,
+            top_p=1.0,
+        )
         call_scorer_server_func = functools.partial(
             prompt_utils.call_llama_server_func,
-            model=scorer_llm_name.lower(),
-            max_decode_steps=scorer_llama_max_decode_steps,
-            temperature=scorer_llama_temperature,
+            pipeline=pipe,
         )
     else:
         assert scorer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4"}
@@ -210,10 +221,11 @@ def main(_):
         optimizer_llm_dict["num_decodes"] = 1
         pipe = pipeline(
             "text-generation",
-            model="meta-llama/Llama-3.1-8B-Instruct",
-            max_new_tokens=optimizer_llama_max_decode_steps,
+            model=llama_model,
+            tokenizer=llama_tokenizer,
             temperature=optimizer_llama_temperature,
-            device="cuda",
+            max_new_tokens=optimizer_llama_max_decode_steps,
+            top_p=1.0,
         )
         call_optimizer_server_func = functools.partial(
             prompt_utils.call_llama_server_func,
@@ -237,6 +249,9 @@ def main(_):
         )
 
     # ====================== try calling the servers ============================
+    import pudb
+
+    pu.db
     print("\n======== testing the scorer and optimizer servers ===========")
     scorer_test_output = call_scorer_server_func(
         "Does the sun rise from the north? Just answer yes or no."
@@ -245,7 +260,6 @@ def main(_):
     print(f"scorer test output: {scorer_test_output}")
     optimizer_test_output = call_optimizer_server_func(
         "Does the sun rise from the north? Just answer yes or no.",
-        temperature=1.0,
     )
     print(f"number of optimizer output decodes: {len(optimizer_test_output)}")
     print(f"optimizer test output: {optimizer_test_output}")
@@ -354,7 +368,7 @@ def main(_):
         "save_folder": save_folder,
     }
 
-    opt_utils.run_evolution(**evolution_kwargs)
+    opt_utils_cc.run_evolution(**evolution_kwargs)
 
 
 if __name__ == "__main__":
