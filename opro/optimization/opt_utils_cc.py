@@ -28,7 +28,7 @@ sys.path.insert(0, OPRO_ROOT_PATH)
 import numpy as np
 import pandas as pd
 
-from opro.evaluation import eval_utils
+from opro.evaluation import eval_utils_cc
 
 
 def extract_string_in_square_brackets(input_string):
@@ -152,11 +152,6 @@ def gen_meta_prompt(
         "both_instructions_and_exemplars",
         "instructions_only",
     }
-    assert dataset_name in {
-        "mmlu",
-        "bbh",
-        "gsm8k",
-    }, "The lower-case dataset name must be one of mmlu, bbh, gsm8k."
     assert num_score_buckets == np.inf or isinstance(num_score_buckets, int)
 
     meta_prompt = ""
@@ -175,11 +170,11 @@ def gen_meta_prompt(
                     " The score ranges from 0 to 100.\n"
                 )
         else:
-            assert optimizer_llm_name.lower() == "text-bison"
+            assert optimizer_llm_name.lower() == "llama"
             meta_prompt_old_instruction_part = (
-                "I have some texts along with their corresponding scores."
-                " The texts are arranged in ascending order based on their scores,"
-                " where higher scores indicate better quality.\n\n"
+                "Your task is to generate the instruction <INS>."
+                " Below are some previous instructions with their scores."
+                " The score ranges from 0 to 100.\n"
             )
         # add old instructions
         old_instructions_and_scores_str = gen_ins_and_score_pairs_substr(
@@ -192,125 +187,24 @@ def gen_meta_prompt(
         meta_prompt_old_instruction_part += old_instructions_and_scores_str
         # add QA pairs if few_shot_qa_pairs == True
         meta_prompt_exemplar_part = ""
-        if few_shot_qa_pairs:
-            if optimizer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4"}:
-                meta_prompt_exemplar_part += "Below are some problems.\n"
-            else:
-                assert optimizer_llm_name.lower() == "text-bison"
-                meta_prompt_exemplar_part += (
-                    "The following exemplars show how to apply your text: you replace"
-                    " <INS> in each input with your text, then read the input and give"
-                    " an output. We say your output is wrong if your output is"
-                    " different from the given output, and we say your output is"
-                    " correct if they are the same. When replacing <INS> with an old"
-                    " piece of text above, we get wrong outputs on the following"
-                    " inputs.\n\n"
-                )
-            for idx in few_shot_index_list:
-                if dataset_name == "mmlu":
-                    question = eval_utils._format_mmlu_example(
-                        data, idx
-                    )  # pylint: disable=protected-access
-                    true_answer = data.iloc[idx, -1]
-                elif dataset_name == "bbh":
-                    question = data[idx]["input"]
-                    true_answer = data[idx]["target"]
-                else:
-                    assert dataset_name == "gsm8k"
-                    question = data.iloc[idx, 0]
-                    true_answer = data.iloc[idx, 1]
 
-                if include_qa:  # when "Q:" and "A:" are present in the prompt
-                    if instruction_pos == "before_Q":
-                        meta_prompt_exemplar_part += (
-                            f"\ninput:\n<INS>\nQ: {question}\nA:"
-                        )
-                    elif instruction_pos == "Q_begin":
-                        meta_prompt_exemplar_part += (
-                            f"\ninput:\nQ: <INS>\n{question}\nA:"
-                        )
-                    elif instruction_pos == "Q_end":
-                        meta_prompt_exemplar_part += (
-                            f"\ninput:\nQ: {question}\n<INS>\nA:"
-                        )
-                    else:  # instruction_pos == "A_begin"
-                        if optimizer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4"}:
-                            meta_prompt_exemplar_part += f"\nQ: {question}\nA: <Start>"
-                        else:
-                            assert optimizer_llm_name.lower() == "text-bison"
-                            meta_prompt_exemplar_part += (
-                                f"\ninput:\nQ: {question}\nA: <INS>"
-                            )
-                else:  # when there're no "Q:" and "A:" in the prompt
-                    assert instruction_pos in {"Q_begin", "Q_end"}
-                    if optimizer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4"}:
-                        if instruction_pos == "Q_begin":
-                            meta_prompt_exemplar_part += (
-                                f"\nProblem:\n<INS>\n{question}\n"
-                            )
-                        elif instruction_pos == "Q_end":
-                            meta_prompt_exemplar_part += (
-                                f"\nProblem:\n{question}\n<INS>\n"
-                            )
-                    else:
-                        assert optimizer_llm_name.lower() == "text-bison"
-                        if instruction_pos == "Q_begin":
-                            meta_prompt_exemplar_part += (
-                                f"\ninput:\n<INS>\n{question}\n"
-                            )
-                        elif instruction_pos == "Q_end":
-                            meta_prompt_exemplar_part += (
-                                f"\ninput:\n{question}\n<INS>\n"
-                            )
-
-                if optimizer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4"}:
-                    meta_prompt_exemplar_part += (
-                        f"\nGround truth answer:\n{true_answer}\n"
-                    )
-                else:
-                    assert optimizer_llm_name.lower() == "text-bison"
-                    meta_prompt_exemplar_part += f"\noutput:\n{true_answer}\n"
-
-        if few_shot_qa_pairs:
-            if instructions_before_exemplars:
-                meta_prompt += (
-                    meta_prompt_old_instruction_part
-                    + "\n\n"
-                    + meta_prompt_exemplar_part
-                )
-            else:
-                meta_prompt += (
-                    meta_prompt_exemplar_part
-                    + "\n\n"
-                    + meta_prompt_old_instruction_part
-                )
-        else:
-            meta_prompt += meta_prompt_old_instruction_part
-
-        if optimizer_llm_name.lower() in {"gpt-3.5-turbo", "gpt-4"}:
-            if instruction_pos == "A_begin":
-                meta_prompt += (
-                    "\n\nGenerate a starting sentence that is different from all the"
-                    " <Start> sentences above, and has a higher score than all the"
-                    " <Start> sentences above. The starting sentence should begin with"
-                    " <Start> and end with </Start>. The starting sentence should be"
-                    " concise, effective, and generally applicable to all QA pairs"
-                    " above."
-                )
-            else:
-                meta_prompt += (
-                    "\n\nGenerate an instruction that"
-                    " is different from all the instructions <INS> above,"
-                    " and has a higher score than all the instructions <INS> above."
-                    " The instruction should begin with <INS> and end with </INS>."
-                    " The instruction should be concise, effective,"
-                    " and generally applicable to all problems above."
-                )
-        else:
-            assert optimizer_llm_name.lower() == "text-bison"
+        if instruction_pos == "A_begin":
             meta_prompt += (
-                "\n\nWrite your new text that is different from the old ones and"
-                " has a score as high as possible. Write the text in square brackets."
+                "\n\nGenerate a starting sentence that is different from all the"
+                " <Start> sentences above, and has a higher score than all the"
+                " <Start> sentences above. The starting sentence should begin with"
+                " <Start> and end with </Start>. The starting sentence should be"
+                " concise, effective, and generally applicable to all QA pairs"
+                " above."
+            )
+        else:
+            meta_prompt += (
+                "\n\nGenerate an instruction that"
+                " is different from all the instructions <INS> above,"
+                " and has a higher score than all the instructions <INS> above."
+                " The instruction should begin with <INS> and end with </INS>."
+                " The instruction should be concise, effective,"
+                " and generally applicable to all problems above."
             )
     else:
         # when using a pre-trained model as optimizer
@@ -355,6 +249,9 @@ def gen_meta_prompt(
 
 
 def run_evolution(**kwargs):
+    import pudb
+
+    pu.db
     """The function for evolution."""
     # ================= experiment configurations =============================
     num_search_steps = kwargs["num_search_steps"]
@@ -381,8 +278,6 @@ def run_evolution(**kwargs):
     call_scorer_server_func = kwargs["call_scorer_server_func"]
     call_optimizer_server_func = kwargs["call_optimizer_server_func"]
     instruction_pos = kwargs["instruction_pos"]
-    prediction_treat_as_number = kwargs["prediction_treat_as_number"]
-    prediction_treat_as_bool = kwargs["prediction_treat_as_bool"]
     num_score_buckets = kwargs["num_score_buckets"]
     max_num_instructions = kwargs["max_num_instructions"]
     meta_prompt_type = kwargs["meta_prompt_type"]
@@ -464,7 +359,7 @@ def run_evolution(**kwargs):
     for instruction in initial_instructions:
         print(f"""computing the score of "{instruction}" by prompting""")
 
-        detailed_results_df = eval_utils.evaluate_single_instruction(
+        detailed_results_df = eval_utils_cc.evaluate_single_instruction(
             data=raw_data,
             instruction=instruction,
             eval_index_all=train_index,

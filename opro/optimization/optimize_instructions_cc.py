@@ -24,7 +24,7 @@ Step 3: check if the model configs (like batch size) are the same as the actual 
 Step 4: run
 
 ```
-python optimize_instructions_cc.py --optimizer="llama" --scorer="llama" --instruction_pos="A_begin" 
+python optimize_instructions_cc.py --optimizer="llama" --scorer="llama" --instruction_pos="Q_end" 
 ```
 
 The outputs will then be written to `outputs/optimization-results/` in the opro folder.
